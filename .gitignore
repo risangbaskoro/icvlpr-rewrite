@@ -1,0 +1,19 @@
+# IDE Configurations
+.idea
+.vscode
+
+# macOS Desktop Service
+**/.DS_Store
+
+# Python Bytecode directories
+**/__pycache__/
+
+# Scratch Files
+**/*_scratch.*
+**/scratches/
+
+# Data directory
+/data/
+
+# Model Checkpoints
+/checkpoints/
