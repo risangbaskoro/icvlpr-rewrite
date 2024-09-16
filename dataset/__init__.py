@@ -1,1 +1,1 @@
-from .dataset import ICVLPDataset, SynthDataset
+from .dataset import BikeDataset, ICVLPDataset, SynthDataset

@@ -19,24 +19,62 @@ from tqdm import tqdm
 
 class _Dataset(Dataset):
     corpus_dict = {
-        '_': 0, 'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'F': 6, 'G': 7, 'H': 8, 'I': 9, 'J': 10, 'K': 11, 'L': 12,
-        'M': 13, 'N': 14, 'O': 15, 'P': 16, 'Q': 17, 'R': 18, 'S': 19, 'T': 20, 'U': 21, 'V': 22, 'W': 23, 'X': 24,
-        'Y': 25, 'Z': 26, '1': 27, '2': 28, '3': 29, '4': 30, '5': 31, '6': 32, '7': 33, '8': 34, '9': 35, '0': 36
+        "_": 0,
+        "A": 1,
+        "B": 2,
+        "C": 3,
+        "D": 4,
+        "E": 5,
+        "F": 6,
+        "G": 7,
+        "H": 8,
+        "I": 9,
+        "J": 10,
+        "K": 11,
+        "L": 12,
+        "M": 13,
+        "N": 14,
+        "O": 15,
+        "P": 16,
+        "Q": 17,
+        "R": 18,
+        "S": 19,
+        "T": 20,
+        "U": 21,
+        "V": 22,
+        "W": 23,
+        "X": 24,
+        "Y": 25,
+        "Z": 26,
+        "1": 27,
+        "2": 28,
+        "3": 29,
+        "4": 30,
+        "5": 31,
+        "6": 32,
+        "7": 33,
+        "8": 34,
+        "9": 35,
+        "0": 36,
     }
 
     labels_dict = {v: k for k, v in corpus_dict.items()}
 
-    def __init__(self,
-                 root: str = 'data',
-                 subset: str = 'train',
-                 transform: Optional[Callable] = None,
-                 target_transform: Optional[Callable] = None,
-                 download: bool = False,
-                 size: Tuple[int, int] = (94, 24),
-                 corpus_dict: dict[str: int] = None,
-                 version: str = 'latest'
-                 ) -> None:
-        assert subset in ['train', 'test', 'val'], f'Subset must be "train", "test", or "val". Got "{subset}"'
+    def __init__(
+        self,
+        root: str = "data",
+        subset: str = "train",
+        transform: Optional[Callable] = None,
+        target_transform: Optional[Callable] = None,
+        download: bool = False,
+        corpus_dict: dict[str:int] = None,
+        version: str = "latest",
+    ) -> None:
+        assert subset in [
+            "train",
+            "test",
+            "val",
+        ], f'Subset must be "train", "test", or "val". Got "{subset}"'
 
         super().__init__()
         self.root = root
@@ -44,7 +82,6 @@ class _Dataset(Dataset):
         self.version = version
         self.transform = transform
         self.target_transform = target_transform
-        self.size = size
 
         if corpus_dict is not None:
             self.corpus_dict = corpus_dict
@@ -86,19 +123,13 @@ class _Dataset(Dataset):
             # Images
             img_path = os.path.join(images_path, filename)
             img = Image.open(img_path)
-            img = img.resize(self.size)
-            # img = np.asarray(img)
-            # # Convert to C x H x W
-            # img = np.moveaxis(img, -1, 0)
-            img = pil_to_tensor(img)
-            img = invert(img)
             images.append(img)
 
             # Labels
-            label = filename.split('.')[0]
+            label = filename.split(".")[0]
             labels.append(label)
 
-        return Tensor(np.array(images)), np.array(labels)
+        return images, labels
 
     def _download(self):
         if self._check_exists():
@@ -112,9 +143,9 @@ class _Dataset(Dataset):
 
                 try:
                     print(f"Downloading {url}")
-                    self._download_archive(url,
-                                           download_root=self.class_folder,
-                                           filename=filename)
+                    self._download_archive(
+                        url, download_root=self.class_folder, filename=filename
+                    )
                 except Exception as e:
                     print(f"Failed to download {url} (trying next):\n{e}")
                     continue
@@ -135,7 +166,7 @@ class _Dataset(Dataset):
         size = int(response.headers.get("content-length", 0))
 
         with tqdm(total=size, unit="bit") as progress:
-            with open(fpath, 'wb') as f:
+            with open(fpath, "wb") as f:
                 for data in response.iter_content(1024):
                     f.write(data)
                     progress.update(len(data))
@@ -155,7 +186,7 @@ class _Dataset(Dataset):
             for filename in self.resources
         ) and all(
             # Check if directories exists
-            os.path.exists(os.path.join(self.class_folder, filename.split('_')[0]))
+            os.path.exists(os.path.join(self.class_folder, filename.split("_")[0]))
             for filename in self.resources
         )
 
@@ -163,24 +194,40 @@ class _Dataset(Dataset):
 class ICVLPDataset(_Dataset):
     version = "20240905"
 
-    mirrors = [
-        "https://data.risangbaskoro.com/icvlp/master"
-    ]
+    mirrors = ["https://data.risangbaskoro.com/icvlp/master"]
 
     resources = [
         f"train_{version}.tar.gz",
         f"val_{version}.tar.gz",
-        f"test_{version}.tar.gz"
+        f"test_{version}.tar.gz",
+    ]
+
+
+class BikeDataset(_Dataset):
+    version = "20240905"
+
+    mirrors = ["https://data.risangbaskoro.com/icvlp/bikes"]
+
+    resources = [
+        f"train_{version}.tar.gz",
+        f"val_{version}.tar.gz",
+        f"test_{version}.tar.gz",
+    ]
+
+
+class BikeDataset(_Dataset):
+    version = "20240905"
+
+    mirrors = ["https://data.risangbaskoro.com/icvlp/bikes"]
+
+    resources = [
+        f"train_{version}.tar.gz",
+        f"val_{version}.tar.gz",
+        f"test_{version}.tar.gz",
     ]
 
 
 class SynthDataset(_Dataset):
-    mirrors = [
-        "https://data.risangbaskoro.com/icvlp/synth"
-    ]
+    mirrors = ["https://data.risangbaskoro.com/icvlp/synth"]
 
-    resources = [
-        f"train.tar.gz",
-        f"val.tar.gz",
-        f"test.tar.gz"
-    ]
+    resources = [f"train.tar.gz", f"val.tar.gz", f"test.tar.gz"]
