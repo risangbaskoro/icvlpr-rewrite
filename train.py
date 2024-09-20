@@ -10,8 +10,8 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
 
-from dataset import ICVLPDataset
-from decoder import GreedyCTCDecoder
+from dataset import BikeDataset, ICVLPDataset, SynthDataset
+from decoder import GreedyCTCDecoder, BeamCTCDecoder
 from metrics import LetterNumberRecognitionRate
 from model import LPRNet, SpatialTransformerLayer, LocNet
 from utils import TColor
@@ -35,7 +35,7 @@ class Trainer:
         self.acc_fn = None
         self.lr_scheduler = None
 
-        self.epoch = None
+        self.epoch = 0
 
         self.avg_loss = 0.0
         self.avg_acc = 0.0
@@ -85,12 +85,12 @@ class Trainer:
             "--epoch-start", type=int, default=0, help="Start epoch number"
         )
         parser.add_argument(
-            "--epoch-end", type=int, default=1500, help="End epoch number"
+            "--epoch-end", type=int, default=2000, help="End epoch number"
         )
         parser.add_argument(
             "--learning-rate-scheduler-step",
             type=int,
-            default=700,
+            default=1400,
             help="Learning rate scheduler step",
         )
         parser.add_argument(
@@ -136,7 +136,7 @@ class Trainer:
 
         # Spatial Transformer Network
         parser.add_argument(
-            "--stn-enable-at", type=int, default=300, help="Enable STN at epoch"
+            "--stn-enable-at", type=int, default=1100, help="Enable STN at epoch"
         )
 
         self.args = parser.parse_args()
@@ -182,6 +182,8 @@ class Trainer:
                     distortion_scale=0.3,
                     p=0.5,
                 ),
+                transforms.ToTensor(),
+                transforms.Resize((24, 94)),
             ]
         )
 
@@ -217,9 +219,11 @@ class Trainer:
 
         loc = LocNet()
         stn = SpatialTransformerLayer(
-            localization=loc, align_corners=False
-        )  # TODO: Experiment with align_corners=True
+            localization=loc, align_corners=True
+        )  # TODO: Experiment with align_corners
         self.model = LPRNet(stn=stn).to(self.device)
+        self.model.use_gc(True)
+        self.model.use_stn(False)
 
         if self.args.checkpoint:
             self.log(f"Restoring model from checkpoint: {self.args.checkpoint}")
@@ -229,10 +233,20 @@ class Trainer:
                 )
             )
 
-        self.optimizer = torch.optim.Adam(
+        # self.optimizer = torch.optim.Adam(
+        #     self.model.parameters(),
+        #     lr=self.args.learning_rate,
+        # )
+
+        self.optimizer = torch.optim.RMSprop(
             self.model.parameters(),
             lr=self.args.learning_rate,
+            alpha=0.9,
+            eps=1e-08,
+            momentum=0.9,
+            weight_decay=2e-5,
         )
+
         self.lr_scheduler = torch.optim.lr_scheduler.StepLR(
             self.optimizer,
             step_size=self.args.learning_rate_scheduler_step,
@@ -243,7 +257,7 @@ class Trainer:
 
         self.decoder = GreedyCTCDecoder(blank=0)
         self.acc_fn = LetterNumberRecognitionRate(
-            decoder=self.decoder, blank=0, reduction="sum"
+            decoder=self.decoder, blank=0, reduction="mean"
         )
 
         self.log("Model initialized.")
@@ -300,13 +314,40 @@ class Trainer:
         )
 
     def activate_stn(self):
-        if not self.model.using_stn and self.args.stn_enable_at >= self.epoch:
+        if not self.model.using_stn and self.epoch > self.args.stn_enable_at:
             self.model.use_stn(True)
             self.log("Spatial Transformer Network activated.")
 
+    def save_model(self):
+        checkpoint_path = os.path.join(
+            self.args.checkpoint_dir, f"{self.args.checkpoint_prefix}_{self.epoch}.pth"
+        )
+        os.makedirs(self.args.checkpoint_dir, exist_ok=True)
+        torch.save(self.model.state_dict(), checkpoint_path)
+        self.log(f"Checkpoint saved to {checkpoint_path}")
+        return checkpoint_path
+
+    def save(self):
+        if self.epoch % self.args.checkpoint_save_interval == 0:
+            checkpoint_path = self.save_model()
+            self.log_model(checkpoint_path)
+
+    def log_model(self, path):
+        if self.logger:
+            self.logger.log_model(path=path, name=os.path.basename(path))
+
+    def log_lr_scheduler(self):
+        if self.epoch % self.args.learning_rate_scheduler_step == 0:
+            self.log(f"Learning rate updated to {self.lr_scheduler.get_last_lr()}")
+
     def cleanup(self):
-        if self.args.save_last and self.args.epoch_end == self.epoch:
-            self.save_model()
+        if (
+            self.args.save_last
+            and self.args.epoch_end == self.epoch
+            and self.epoch % self.args.checkpoint_save_interval != 0
+        ):
+            checkpoint_path = self.save_model()
+            self.log_model(checkpoint_path)
 
         if self.logger:
             self.logger.finish()
@@ -325,9 +366,12 @@ class Trainer:
             self.eval()
 
             # Log and save
+            self.log_epoch()
+            self.save()
 
             # Learning Rate Scheduler Step
             self.lr_scheduler.step()
+            self.log_lr_scheduler()
 
     def train(self):
         running_loss = 0.0
@@ -357,8 +401,6 @@ class Trainer:
             pbar.set_postfix(
                 loss=f"{running_loss / (i + 1):.4f}",
                 acc=f"{running_acc / (i + 1):.4f}",
-                val_loss=f"{self.val_avg_loss:.4f}",
-                val_acc=f"{self.val_avg_acc:.4f}",
             )
 
         self.avg_loss = running_loss / len(self.dl_train)

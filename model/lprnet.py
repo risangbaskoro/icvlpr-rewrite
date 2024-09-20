@@ -104,7 +104,7 @@ class LPRNet(nn.Module):
 
     def __init__(
         self,
-        num_classes: int = 37,
+        num_classes: int = 36,
         input_channels: int = 3,
         stn: nn.Module = None,
         dropout_p: float = 0.5,
@@ -170,15 +170,26 @@ class LPRNet(nn.Module):
         self.conv_out = nn.Conv2d(
             in_channels=256,
             out_channels=num_classes,
-            kernel_size=(1, 13),
+            kernel_size=(1, 18),
             stride=(1, 1),
-            padding="same",
         )
         self.batch_norm_out = nn.BatchNorm2d(num_features=num_classes)
         # --- Backbone End ---
 
         # Global Context
         self.using_gc = False
+        self.gc_fc = nn.Linear(
+            in_features=44,
+            out_features=88,
+        )
+        self.gc_conv = nn.Conv2d(
+            in_channels=512,
+            out_channels=256,
+            kernel_size=(1, 1),
+            stride=(1, 1),
+            padding="same",
+        )
+        self.gc_batch_norm = nn.BatchNorm2d(num_features=256)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
@@ -232,13 +243,18 @@ class LPRNet(nn.Module):
         if not self.using_gc:
             return input
 
-        raise NotImplementedError(
-            "This method is currently not implemented. Please set `use_gc(False)` instead."
-        )
-        # Adjust layer
-        # xs = self.gc_conv(xs)
-        # xs = self.gc_batch_norm(xs)
-        # xs = F.relu()
+        xs = F.adaptive_avg_pool2d(input, (1, 44))
+        xs = F.normalize(xs)
+        xs = xs.flatten(end_dim=1)
+        xs = self.gc_fc(xs)
+        xs = F.relu(xs)
+        xs = xs.reshape(input.shape)
+        xs = torch.cat([input, xs], dim=1)
+
+        xs = self.gc_conv(xs)
+        xs = self.gc_batch_norm(xs)
+        xs = F.relu(xs)
+        return xs
 
     def use_stn(self, enable: bool = True):
         self.using_stn = enable

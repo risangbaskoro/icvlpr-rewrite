@@ -20,42 +20,41 @@ from tqdm import tqdm
 class _Dataset(Dataset):
     corpus_dict = {
         "_": 0,
-        "A": 1,
-        "B": 2,
-        "C": 3,
-        "D": 4,
-        "E": 5,
-        "F": 6,
-        "G": 7,
-        "H": 8,
-        "I": 9,
-        "J": 10,
-        "K": 11,
-        "L": 12,
-        "M": 13,
-        "N": 14,
-        "O": 15,
-        "P": 16,
-        "Q": 17,
-        "R": 18,
-        "S": 19,
-        "T": 20,
-        "U": 21,
-        "V": 22,
-        "W": 23,
-        "X": 24,
-        "Y": 25,
-        "Z": 26,
-        "1": 27,
-        "2": 28,
-        "3": 29,
-        "4": 30,
-        "5": 31,
-        "6": 32,
-        "7": 33,
-        "8": 34,
-        "9": 35,
-        "0": 36,
+        "0": 1,
+        "1": 2,
+        "2": 3,
+        "3": 4,
+        "4": 5,
+        "5": 6,
+        "6": 7,
+        "7": 8,
+        "8": 9,
+        "9": 10,
+        "A": 11,
+        "B": 12,
+        "C": 13,
+        "D": 14,
+        "E": 15,
+        "F": 16,
+        "G": 17,
+        "H": 18,
+        "I": 19,
+        "J": 20,
+        "K": 21,
+        "L": 22,
+        "M": 23,
+        "N": 24,
+        "P": 25,
+        "Q": 26,
+        "R": 27,
+        "S": 28,
+        "T": 29,
+        "U": 30,
+        "V": 31,
+        "W": 32,
+        "X": 33,
+        "Y": 34,
+        "Z": 35,
     }
 
     labels_dict = {v: k for k, v in corpus_dict.items()}
@@ -127,6 +126,7 @@ class _Dataset(Dataset):
 
             # Labels
             label = filename.split(".")[0]
+            label = label.replace("O", "0") # Replace O with 0 (zero)
             labels.append(label)
 
         return images, labels
@@ -192,7 +192,7 @@ class _Dataset(Dataset):
 
 
 class ICVLPDataset(_Dataset):
-    version = "20240905"
+    version = "20240920"
 
     mirrors = ["https://data.risangbaskoro.com/icvlp/master"]
 
