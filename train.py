@@ -35,7 +35,7 @@ class Trainer:
         self.acc_fn = None
         self.lr_scheduler = None
 
-        self.epoch = None
+        self.epoch = 0
 
         self.avg_loss = 0.0
         self.avg_acc = 0.0
@@ -48,6 +48,9 @@ class Trainer:
 
         self.init_dataset()
         self.init_model()
+        self.init_optimizer()
+        self.init_loss()
+        self.init_accuracy()
 
         self.init_logger()
 
@@ -73,13 +76,28 @@ class Trainer:
             "--device", type=str, default=None, help="Device to use for training"
         )
         parser.add_argument(
-            "--learning-rate", type=float, default=0.001, help="Initial learning rate"
+            "--optimizer",
+            type=str,
+            default="adam",
+            help="Optimizer to use. Values: ['adam', 'rmsprop', 'sgd']. Default: 'adam'",
+        )
+        parser.add_argument(
+            "--learning-rate", type=float, default=0.001, help="Initial learning rate. Default: 0.001"
+        )
+        parser.add_argument(
+            "--momentum", type=float, default=0.9, help="Momentum for RMSProp and SGD optimizer. Default: 0.9"
+        )
+        parser.add_argument(
+            "--weight-decay",
+            type=float,
+            default=2e-5,
+            help="Weight decay for the optimizer. Default: 2e-5",
         )
         parser.add_argument(
             "--batch-size",
             type=int,
             default=32,
-            help="Batch size for training in each iteration",
+            help="Batch size for training in each iteration. Default: 32",
         )
         parser.add_argument(
             "--epoch-start", type=int, default=0, help="Start epoch number"
@@ -182,6 +200,8 @@ class Trainer:
                     distortion_scale=0.3,
                     p=0.5,
                 ),
+                transforms.ToTensor(),
+                transforms.Resize((24, 94)),
             ]
         )
 
@@ -217,9 +237,11 @@ class Trainer:
 
         loc = LocNet()
         stn = SpatialTransformerLayer(
-            localization=loc, align_corners=False
-        )  # TODO: Experiment with align_corners=True
+            localization=loc, align_corners=True
+        )  # TODO: Experiment with align_corners
         self.model = LPRNet(stn=stn).to(self.device)
+        # self.model.use_gc(True)
+        self.model.use_stn(False)
 
         if self.args.checkpoint:
             self.log(f"Restoring model from checkpoint: {self.args.checkpoint}")
@@ -229,24 +251,56 @@ class Trainer:
                 )
             )
 
-        self.optimizer = torch.optim.Adam(
-            self.model.parameters(),
-            lr=self.args.learning_rate,
-        )
+        self.log("Model initialized.")
+
+    def init_optimizer(self):
+        valid_optim = ["adam", "rmsprop", "sgd"]
+        assert (
+            self.args.optimizer in valid_optim
+        ), f"--optimizer must be one of {valid_optim}. Got {self.args.optimizer}"
+
+        optim = self.args.optimizer
+
+        if optim == "adam":
+            self.optimizer = torch.optim.Adam(
+                self.model.parameters(),
+                lr=self.args.learning_rate,
+                weight_decay=self.args.weight_decay,
+            )
+        elif optim == "rmsprop":
+            self.optimizer = torch.optim.RMSprop(
+                self.model.parameters(),
+                lr=self.args.learning_rate,
+                alpha=0.9,
+                eps=1e-08,
+                momentum=self.args.momentum,
+                weight_decay=self.args.weight_decay,
+            )
+        elif optim == "sgd":
+            self.optimizer = torch.optim.SGD(
+                self.model.parameters(),
+                lr=self.args.learning_rate,
+                momentum=self.args.momentum,
+                weight_decay=self.args.weight_decay,
+            )
+
         self.lr_scheduler = torch.optim.lr_scheduler.StepLR(
             self.optimizer,
             step_size=self.args.learning_rate_scheduler_step,
             gamma=0.1,
         )
+        self.log(f"Optimizer initialized: {self.optimizer.__class__.__name__}")
 
-        self.loss_fn = nn.CTCLoss(blank=0, zero_infinity=False, reduction="sum")
+    def init_loss(self):
+        self.loss_fn = nn.CTCLoss(blank=0, zero_infinity=False, reduction="mean")
+        self.log(f"Loss function initialized: {self.loss_fn.__class__.__name__}")
 
+    def init_accuracy(self):
         self.decoder = GreedyCTCDecoder(blank=0)
         self.acc_fn = LetterNumberRecognitionRate(
             decoder=self.decoder, blank=0, reduction="sum"
         )
-
-        self.log("Model initialized.")
+        self.log(f"Accuracy function initialized: {self.acc_fn.__class__.__name__}")
 
     def init_logger(self):
         if not self.args.wandb:
@@ -287,10 +341,10 @@ class Trainer:
     def calculate_loss(self, logits, targets):
         target_lengths = targets.ne(0).sum(dim=1)
         input_lengths = torch.full(
-            size=(logits.size(0),), fill_value=logits.size(1), dtype=torch.long
+            size=(logits.size(0),), fill_value=logits.size(2), dtype=torch.long
         )
         log_probs = logits.permute(2, 0, 1)
-        log_probs = F.log_softmax(log_probs, dim=2)
+        log_probs = log_probs.log_softmax(2).requires_grad_()
 
         return self.loss_fn(
             log_probs=log_probs,
@@ -300,13 +354,40 @@ class Trainer:
         )
 
     def activate_stn(self):
-        if not self.model.using_stn and self.args.stn_enable_at >= self.epoch:
+        if not self.model.using_stn and self.epoch > self.args.stn_enable_at:
             self.model.use_stn(True)
             self.log("Spatial Transformer Network activated.")
 
+    def save_model(self):
+        checkpoint_path = os.path.join(
+            self.args.checkpoint_dir, f"{self.args.checkpoint_prefix}_{self.epoch}.pth"
+        )
+        os.makedirs(self.args.checkpoint_dir, exist_ok=True)
+        torch.save(self.model.state_dict(), checkpoint_path)
+        self.log(f"Checkpoint saved to {checkpoint_path}")
+        return checkpoint_path
+
+    def save(self):
+        if self.epoch % self.args.checkpoint_save_interval == 0:
+            checkpoint_path = self.save_model()
+            self.log_model(checkpoint_path)
+
+    def log_model(self, path):
+        if self.logger:
+            self.logger.log_model(path=path, name=os.path.basename(path))
+
+    def log_lr_scheduler(self):
+        if self.epoch % self.args.learning_rate_scheduler_step == 0:
+            self.log(f"Learning rate updated to {self.lr_scheduler.get_last_lr()}")
+
     def cleanup(self):
-        if self.args.save_last and self.args.epoch_end == self.epoch:
-            self.save_model()
+        if (
+            self.args.save_last
+            and self.args.epoch_end == self.epoch
+            and self.epoch % self.args.checkpoint_save_interval != 0
+        ):
+            checkpoint_path = self.save_model()
+            self.log_model(checkpoint_path)
 
         if self.logger:
             self.logger.finish()
@@ -325,9 +406,12 @@ class Trainer:
             self.eval()
 
             # Log and save
+            self.log_epoch()
+            self.save()
 
             # Learning Rate Scheduler Step
             self.lr_scheduler.step()
+            self.log_lr_scheduler()
 
     def train(self):
         running_loss = 0.0
@@ -357,8 +441,6 @@ class Trainer:
             pbar.set_postfix(
                 loss=f"{running_loss / (i + 1):.4f}",
                 acc=f"{running_acc / (i + 1):.4f}",
-                val_loss=f"{self.val_avg_loss:.4f}",
-                val_acc=f"{self.val_avg_acc:.4f}",
             )
 
         self.avg_loss = running_loss / len(self.dl_train)
