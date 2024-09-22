@@ -5,7 +5,6 @@ import torch
 
 from torch import nn
 from torch.nn import functional as F
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
@@ -14,7 +13,7 @@ from dataset import ICVLPDataset
 from decoder import GreedyCTCDecoder
 from metrics import LetterNumberRecognitionRate
 from model import LPRNet, SpatialTransformerLayer, LocNet
-from utils import TColor
+from utils import TColor, pad_target_sequence
 
 
 class Trainer:
@@ -173,20 +172,6 @@ class Trainer:
 
     def init_dataset(self):
         self.log("Initializing dataset...")
-
-        def pad_target_sequence(batch):
-            """Collate function for the dataloader.
-
-            Automatically adds padding to the target of each batch.
-            """
-            # Extract samples and targets from the batch
-            samples, targets = zip(*batch)
-
-            # Pad the target sequences to the same length
-            padded_targets = pad_sequence(targets, batch_first=True, padding_value=0)
-
-            # Return padded samples and targets
-            return torch.stack(samples), padded_targets
 
         img_transforms = transforms.Compose(
             [
