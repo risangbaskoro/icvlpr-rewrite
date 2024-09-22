@@ -28,8 +28,8 @@ class LocNet(nn.Module):
         self.fc_1 = nn.Linear(in_features=64 * 7 * 30, out_features=32)
         self.fc_2 = nn.Linear(in_features=32, out_features=6)
 
-        self.fc_2.weight.data.zero_()
-        self.fc_2.bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
+        self.fc_2.weight.data.zero_().requires_grad_(False)
+        self.fc_2.bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float)).requires_grad_(False)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """

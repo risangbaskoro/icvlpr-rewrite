@@ -104,7 +104,7 @@ class LPRNet(nn.Module):
 
     def __init__(
         self,
-        num_classes: int = 37,
+        num_classes: int = 36,
         input_channels: int = 3,
         stn: nn.Module = None,
         dropout_p: float = 0.5,
@@ -122,63 +122,43 @@ class LPRNet(nn.Module):
         self.using_stn = False
 
         # --- Backbone ---
-        self.conv_1 = nn.Conv2d(
-            in_channels=self.input_channels,
-            out_channels=64,
-            kernel_size=(3, 3),
+        self.backbone = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1),
+            nn.BatchNorm2d(num_features=64),
+            nn.ReLU(),
+            nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 1, 1)),
+            SmallBasicBlock(in_channels=64, out_channels=128),
+            nn.BatchNorm2d(num_features=128),
+            nn.ReLU(),
+            nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(2, 1, 2)),
+            SmallBasicBlock(in_channels=64, out_channels=256),
+            nn.BatchNorm2d(num_features=256),
+            nn.ReLU(),
+            SmallBasicBlock(in_channels=256, out_channels=256),
+            nn.BatchNorm2d(num_features=256),
+            nn.ReLU(),
+            nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(4, 1, 2)),
+            nn.Dropout(0.5),
+            nn.Conv2d(in_channels=64, out_channels=256, kernel_size=(1, 4), stride=1),
+            nn.BatchNorm2d(num_features=256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(
+                in_channels=256,
+                out_channels=self.num_classes,
+                kernel_size=(13, 1),
+                stride=1,
+            ),
+            nn.BatchNorm2d(num_features=self.num_classes),
+            nn.ReLU(),
+        )
+        self.container = nn.Conv2d(
+            in_channels=448 + self.num_classes,
+            out_channels=self.num_classes,
+            kernel_size=(1, 1),
             stride=(1, 1),
-            padding="same",
         )
-        self.batch_norm_1 = nn.BatchNorm2d(num_features=64)
-        self.max_pool_1 = nn.MaxPool2d(
-            kernel_size=(3, 3),
-            stride=(1, 1),
-        )
-        self.block_1 = SmallBasicBlock(
-            in_channels=64,
-            out_channels=128,
-            stride=(1, 1),
-        )
-        self.max_pool_2 = nn.MaxPool2d(
-            kernel_size=(3, 3),
-            stride=(2, 1),
-        )
-        self.block_2 = SmallBasicBlock(
-            in_channels=128,
-            out_channels=256,
-            stride=(1, 1),
-        )
-        self.block_3 = SmallBasicBlock(
-            in_channels=256,
-            out_channels=256,
-            stride=(1, 1),
-        )
-        self.max_pool_3 = nn.MaxPool2d(
-            kernel_size=(3, 3),
-            stride=(2, 1),
-        )
-        self.dropout_1 = nn.Dropout2d(p=dropout_p)
-        self.conv_2 = nn.Conv2d(
-            in_channels=256,
-            out_channels=256,
-            kernel_size=(4, 1),
-            stride=(1, 1),
-        )  # TODO: check channels in
-        self.batch_norm_2 = nn.BatchNorm2d(num_features=256)
-        self.dropout_2 = nn.Dropout2d(p=dropout_p)
-
-        self.conv_out = nn.Conv2d(
-            in_channels=256,
-            out_channels=num_classes,
-            kernel_size=(1, 13),
-            stride=(1, 1),
-            padding="same",
-        )
-        self.batch_norm_out = nn.BatchNorm2d(num_features=num_classes)
         # --- Backbone End ---
-
-        # Global Context
-        self.using_gc = False
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
@@ -192,34 +172,30 @@ class LPRNet(nn.Module):
                 - T: Timesteps
         """
 
-        xs = input
-        xs = self.forward_stn(xs)
-        xs = self.conv_1(input)
-        xs = self.batch_norm_1(xs)
-        xs = F.relu(xs)
+        x = input
+        x = self.forward_stn(x)
+        keep_features = list()
+        for i, layer in enumerate(self.backbone.children()):
+            x = layer(x)
+            if i in [2, 6, 13, 22]:  # [2, 4, 8, 11, 22]
+                keep_features.append(x)
 
-        xs = self.max_pool_1(xs)
-        xs = self.block_1(xs)
-        xs = self.max_pool_2(xs)
+        global_context = list()
+        for i, f in enumerate(keep_features):
+            if i in [0, 1]:
+                f = nn.AvgPool2d(kernel_size=5, stride=5)(f)
+            if i in [2]:
+                f = nn.AvgPool2d(kernel_size=(4, 10), stride=(4, 2))(f)
+            f_pow = torch.pow(f, 2)
+            f_mean = torch.mean(f_pow)
+            f = torch.div(f, f_mean)
+            global_context.append(f)
 
-        xs = self.block_2(xs)
-        xs = self.block_3(xs)
-        xs = self.max_pool_3(xs)
-        xs = self.dropout_1(xs)
+        x = torch.cat(global_context, 1)
+        x = self.container(x)
+        logits = torch.mean(x, dim=2)
 
-        xs = self.conv_2(xs)
-        xs = self.batch_norm_2(xs)
-        xs = F.relu(xs)
-        xs = self.dropout_2(xs)
-
-        xs = self.forward_gc(xs)
-
-        xs = self.conv_out(xs)
-        xs = self.batch_norm_out(xs)
-        xs = F.relu(xs)
-        xs = xs.squeeze(dim=2)
-
-        return xs
+        return logits
 
     def forward_stn(self, input: torch.Tensor) -> torch.Tensor:
         if not self.using_stn or self.stn is None:
@@ -227,36 +203,5 @@ class LPRNet(nn.Module):
 
         return self.stn(input)
 
-    # TODO: Implement global context
-    def forward_gc(self, input: torch.Tensor) -> torch.Tensor:
-        if not self.using_gc:
-            return input
-
-        raise NotImplementedError(
-            "This method is currently not implemented. Please set `use_gc(False)` instead."
-        )
-        # Adjust layer
-        # xs = self.gc_conv(xs)
-        # xs = self.gc_batch_norm(xs)
-        # xs = F.relu()
-
     def use_stn(self, enable: bool = True):
         self.using_stn = enable
-
-    def use_gc(self, enable: bool = True):
-        self.using_gc = enable
-
-
-if __name__ == "__main__":
-    from stn import LocNet, SpatialTransformerLayer
-
-    loc = LocNet()
-    stn = SpatialTransformerLayer(localization=loc, align_corners=True)
-
-    model = LPRNet(37, 3, stn)
-
-    input = torch.randint(0, 255, (32, 3, 24, 94), dtype=torch.float)
-
-    output = model(input)
-
-    print(output.shape)
