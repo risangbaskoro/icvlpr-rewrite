@@ -5,7 +5,7 @@ import torch
 
 from torch import nn
 from torch.nn import functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import ConcatDataset, DataLoader
 from torchvision import transforms
 from tqdm import tqdm
 
@@ -13,7 +13,7 @@ from dataset import ICVLPDataset
 from decoder import GreedyCTCDecoder
 from metrics import LetterNumberRecognitionRate
 from model import LPRNet, SpatialTransformerLayer, LocNet
-from utils import TColor, pad_target_sequence
+from utils import CHARS_DICT, TColor, pad_target_sequence
 
 
 class Trainer:
@@ -122,6 +122,12 @@ class Trainer:
             default=True,
             help="Save last checkpoint of the run",
         )
+        parser.add_argument(
+            "--concat-dataset",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help="Concatenate dataset for final training",
+        )
 
         # Checkpoint
         parser.add_argument(
@@ -202,16 +208,25 @@ class Trainer:
             transform=img_transforms,
             download=True,
         )
+        self.ds_val = ICVLPDataset(
+            "data",
+            subset="val",
+            transform=img_transforms,
+        )
+
+        if self.args.concat_dataset:
+            self.ds_train = ConcatDataset([self.ds_train, self.ds_val])
+            self.ds_val = ICVLPDataset(
+                "data",
+                subset="test",
+                transform=img_transforms,
+            )
+
         self.dl_train = DataLoader(
             self.ds_train,
             batch_size=self.args.batch_size,
             shuffle=True,
             collate_fn=pad_target_sequence,
-        )
-        self.ds_val = ICVLPDataset(
-            "data",
-            subset="val",
-            transform=img_transforms,
         )
         self.dl_val = DataLoader(
             self.ds_val,
@@ -231,7 +246,7 @@ class Trainer:
             localization=loc, align_corners=True
         )  # TODO: Experiment with align_corners
 
-        num_classes = len(self.ds_train.corpus_dict)
+        num_classes = len(CHARS_DICT) 
 
         self.model = LPRNet(num_classes=num_classes, stn=stn).to(self.device)
         self.model.use_stn(False)
@@ -307,6 +322,7 @@ class Trainer:
             "epoch-end": self.args.epoch_end,
             "epoch": abs(self.args.epoch_end - self.args.epoch_start),
             "dataset": self.ds_train.__class__.__name__,
+            "dataset-concatenated": self.args.concat_dataset,
             "loss": self.loss_fn.__class__.__name__,
             "optimizer": self.optimizer.__class__.__name__,
         }
@@ -461,12 +477,20 @@ class Trainer:
             running_loss += loss.item()
             running_acc += self.acc_fn(logits, targets)
 
-            pbar.set_postfix(
-                loss=f"{self.avg_loss:.4f}",
-                acc=f"{self.avg_acc:.4f}",
-                val_loss=f"{running_loss / (i + 1):.4f}",
-                val_acc=f"{running_acc / (i + 1):.4f}",
-            )
+            if self.args.concat_dataset:
+                pbar.set_postfix(
+                    loss=f"{self.avg_loss:.4f}",
+                    acc=f"{self.avg_acc:.4f}",
+                    test_loss=f"{running_loss / (i + 1):.4f}",
+                    test_acc=f"{running_acc / (i + 1):.4f}",
+                )
+            else:
+                pbar.set_postfix(
+                    loss=f"{self.avg_loss:.4f}",
+                    acc=f"{self.avg_acc:.4f}",
+                    val_loss=f"{running_loss / (i + 1):.4f}",
+                    val_acc=f"{running_acc / (i + 1):.4f}",
+                )
 
         self.val_avg_loss = running_loss / len(self.dl_val)
         self.val_avg_acc = running_acc / len(self.dl_val)
