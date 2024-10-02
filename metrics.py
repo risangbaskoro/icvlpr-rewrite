@@ -16,7 +16,6 @@ class LetterNumberRecognitionRate(nn.Module):
     Args:
         decoder (nn.Module): A decoder module that takes logits as input and returns the decoded sequence.
         blank (int): Index of the blank token in the vocabulary.
-        reduction (str): Specifies the reduction to apply to the output. Default: 'mean'.
 
     Shape:
         pred (Tensor): :math:`(N, C)` where `N` is the batch size and `C` is the number of classes.
@@ -27,17 +26,11 @@ class LetterNumberRecognitionRate(nn.Module):
         self,
         decoder: nn.Module = None,
         blank: int = 0,
-        reduction: str = "mean",
     ) -> None:
         super().__init__()
-        if reduction not in ["mean", "sum"]:
-            raise ValueError(
-                f"Reduction must be either 'mean' or 'sum'. Got {reduction}"
-            )
 
         self.decoder = decoder
         self.blank = blank
-        self.reduction = reduction
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """Compute the Letter and Number Recognition Rate.
@@ -56,20 +49,22 @@ class LetterNumberRecognitionRate(nn.Module):
             raise ValueError("Expected a 2D tensor for target.")
 
         decoded_sequences = self.decoder(logits)
+        
+        # Convert targets to a list of lists and then remove the blank token elements
+        aligned_targets = targets.tolist()
+        aligned_targets = [[token for token in sequence if token != self.blank] for sequence in aligned_targets]
 
-        running_accuracy = 0.0
+        corrects = 0
+        lengths = 0
 
-        for decoded_sequence, target_sequence in zip(decoded_sequences, targets):
+        for decoded_sequence, target_sequence in zip(decoded_sequences, aligned_targets):
             num_correct = 0
 
             for pred, target in zip(decoded_sequence, target_sequence):
                 if pred == target:
                     num_correct += 1
-            running_accuracy = num_correct / len(target_sequence)
 
-        if self.reduction == "mean":
-            ret = running_accuracy / len(targets)
-        elif self.reduction == "sum":
-            ret = running_accuracy
+            corrects += num_correct
+            lengths += len(target_sequence)
 
-        return ret
+        return corrects / lengths

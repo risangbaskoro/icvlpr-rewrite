@@ -81,10 +81,16 @@ class Trainer:
             help="Optimizer to use. Values: ['adam', 'rmsprop', 'sgd']. Default: 'adam'",
         )
         parser.add_argument(
-            "--learning-rate", type=float, default=0.001, help="Initial learning rate. Default: 0.001"
+            "--learning-rate",
+            type=float,
+            default=0.001,
+            help="Initial learning rate. Default: 0.001",
         )
         parser.add_argument(
-            "--momentum", type=float, default=0.9, help="Momentum for RMSProp and SGD optimizer. Default: 0.9"
+            "--momentum",
+            type=float,
+            default=0.9,
+            help="Momentum for RMSProp and SGD optimizer. Default: 0.9",
         )
         parser.add_argument(
             "--weight-decay",
@@ -215,7 +221,7 @@ class Trainer:
         )
         self.log(f"Train Dataset Length: {len(self.ds_train)}")
         self.log(f"Val Dataset Length: {len(self.ds_val)}")
-        self.log("Datasets initialized.")
+        self.log(f"Datasets initialized: {self.ds_train.__class__.__name__}")
 
     def init_model(self):
         self.log("Initializing model...")
@@ -224,8 +230,10 @@ class Trainer:
         stn = SpatialTransformerLayer(
             localization=loc, align_corners=True
         )  # TODO: Experiment with align_corners
-        self.model = LPRNet(stn=stn).to(self.device)
-        # self.model.use_gc(True)
+
+        num_classes = len(self.ds_train.corpus_dict)
+
+        self.model = LPRNet(num_classes=num_classes, stn=stn).to(self.device)
         self.model.use_stn(False)
 
         if self.args.checkpoint:
@@ -249,6 +257,7 @@ class Trainer:
         if optim == "adam":
             self.optimizer = torch.optim.Adam(
                 self.model.parameters(),
+                betas=(self.args.momentum, 0.999),
                 lr=self.args.learning_rate,
                 weight_decay=self.args.weight_decay,
             )
@@ -282,9 +291,7 @@ class Trainer:
 
     def init_accuracy(self):
         self.decoder = GreedyCTCDecoder(blank=0)
-        self.acc_fn = LetterNumberRecognitionRate(
-            decoder=self.decoder, blank=0, reduction="sum"
-        )
+        self.acc_fn = LetterNumberRecognitionRate(decoder=self.decoder, blank=0)
         self.log(f"Accuracy function initialized: {self.acc_fn.__class__.__name__}")
 
     def init_logger(self):
@@ -301,7 +308,7 @@ class Trainer:
             "epoch": abs(self.args.epoch_end - self.args.epoch_start),
             "dataset": self.ds_train.__class__.__name__,
             "loss": self.loss_fn.__class__.__name__,
-            "optimizer": "Adam",
+            "optimizer": self.optimizer.__class__.__name__,
         }
 
         self.logger = wandb.init(

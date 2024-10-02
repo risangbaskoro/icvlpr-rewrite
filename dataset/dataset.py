@@ -1,64 +1,23 @@
 import os
 import tarfile
+import sys
 
 import requests
 
-import numpy as np
 import torch
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 from PIL import Image
 
-from torch import Tensor
 from torch.utils.data import Dataset
-from torchvision.transforms.functional import invert, pil_to_tensor
 
 from tqdm import tqdm
 
+from utils import CHARS_DICT
+
 
 class _Dataset(Dataset):
-    corpus_dict = {
-        "_": 0,
-        "0": 1,
-        "1": 2,
-        "2": 3,
-        "3": 4,
-        "4": 5,
-        "5": 6,
-        "6": 7,
-        "7": 8,
-        "8": 9,
-        "9": 10,
-        "A": 11,
-        "B": 12,
-        "C": 13,
-        "D": 14,
-        "E": 15,
-        "F": 16,
-        "G": 17,
-        "H": 18,
-        "I": 19,
-        "J": 20,
-        "K": 21,
-        "L": 22,
-        "M": 23,
-        "N": 24,
-        "P": 25,
-        "Q": 26,
-        "R": 27,
-        "S": 28,
-        "T": 29,
-        "U": 30,
-        "V": 31,
-        "W": 32,
-        "X": 33,
-        "Y": 34,
-        "Z": 35,
-    }
-
-    labels_dict = {v: k for k, v in corpus_dict.items()}
-
     def __init__(
         self,
         root: str = "data",
@@ -82,9 +41,7 @@ class _Dataset(Dataset):
         self.transform = transform
         self.target_transform = target_transform
 
-        if corpus_dict is not None:
-            self.corpus_dict = corpus_dict
-            self.labels_dict = {v: k for k, v in corpus_dict.items()}
+        self.corpus_dict = CHARS_DICT if corpus_dict is None else corpus_dict
 
         if download:
             self._download()
@@ -126,7 +83,6 @@ class _Dataset(Dataset):
 
             # Labels
             label = filename.split(".")[0]
-            label = label.replace("O", "0") # Replace O with 0 (zero)
             labels.append(label)
 
         return images, labels
@@ -195,18 +151,6 @@ class ICVLPDataset(_Dataset):
     version = "20240920"
 
     mirrors = ["https://data.risangbaskoro.com/icvlp/master"]
-
-    resources = [
-        f"train_{version}.tar.gz",
-        f"val_{version}.tar.gz",
-        f"test_{version}.tar.gz",
-    ]
-
-
-class BikeDataset(_Dataset):
-    version = "20240905"
-
-    mirrors = ["https://data.risangbaskoro.com/icvlp/bikes"]
 
     resources = [
         f"train_{version}.tar.gz",

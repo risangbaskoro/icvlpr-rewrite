@@ -104,7 +104,7 @@ class LPRNet(nn.Module):
 
     def __init__(
         self,
-        num_classes: int = 36,
+        num_classes: int = 37,
         input_channels: int = 3,
         stn: nn.Module = None,
         dropout_p: float = 0.5,
@@ -138,11 +138,11 @@ class LPRNet(nn.Module):
             nn.BatchNorm2d(num_features=256),
             nn.ReLU(),
             nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(4, 1, 2)),
-            nn.Dropout(0.5),
+            nn.Dropout(dropout_p),
             nn.Conv2d(in_channels=64, out_channels=256, kernel_size=(1, 4), stride=1),
             nn.BatchNorm2d(num_features=256),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(dropout_p),
             nn.Conv2d(
                 in_channels=256,
                 out_channels=self.num_classes,
