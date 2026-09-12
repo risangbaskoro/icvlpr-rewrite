@@ -21,6 +21,11 @@ atau bisa menggunakan file `requirements.txt` yang sudah disediakan menggunakan 
 pip install -r requirements.txt
 ```
 
+atau bisa install menggunakan `uv`:
+```shell
+uv sync
+```
+
 ## Training
 Untuk memulai *training*, jalankan perintah berikut di *shell* Anda:
 ```shell

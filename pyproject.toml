@@ -1,0 +1,15 @@
+[project]
+name = "icvlpr"
+version = "0.1.0"
+description = "License Plate Recognition using LPRNet"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy==2.0.2",
+    "pillow==10.4.0",
+    "requests==2.32.3",
+    "torch==2.4.1",
+    "torchmetrics==1.4.3",
+    "tqdm==4.66.5",
+    "wandb==0.18.1",
+]

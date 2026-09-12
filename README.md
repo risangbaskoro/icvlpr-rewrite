@@ -22,6 +22,11 @@ or, simply just use the provided `requirements.txt` using `pip`:
 pip install -r requirements.txt
 ```
 
+or using `uv`:
+```shell
+uv sync
+```
+
 ## Training
 To start training, run the following command in your shell:
 ```shell
